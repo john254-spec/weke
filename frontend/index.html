@@ -67,22 +67,6 @@
     button:hover {
       background-color: #0056b3;
     }
-    #tabs {
-      margin-bottom: 20px;
-    }
-    #tabs button {
-      margin-right: 5px;
-      padding: 8px 12px;
-      border: 1px solid #007bff;
-      background: white;
-      color: #007bff;
-      border-radius: 4px 4px 0 0;
-      font-weight: 600;
-    }
-    #tabs button.active {
-      background: #007bff;
-      color: white;
-    }
   </style>
 </head>
 <body>
@@ -104,9 +88,8 @@
   </div>
 
 <script>
-  // Simple "database" in localStorage (for demo only)
-  // User object stored as JSON in localStorage with key "wekelogin_user"
-  
+  const API_BASE = 'http://localhost:10000/api'; // Change if your backend URL differs
+
   // Elements
   const content = document.getElementById('content');
   const authStatus = document.getElementById('auth-status');
@@ -117,11 +100,12 @@
   const linkLogout = document.getElementById('link-logout');
 
   function isLoggedIn() {
-    return localStorage.getItem('wekelogin_user') !== null;
+    return !!localStorage.getItem('token');
   }
 
   function getUser() {
-    return JSON.parse(localStorage.getItem('wekelogin_user'));
+    const userJson = localStorage.getItem('wekelogin_user');
+    return userJson ? JSON.parse(userJson) : null;
   }
 
   function updateNav() {
@@ -131,7 +115,7 @@
       linkLogin.classList.add('hidden');
       linkRegister.classList.add('hidden');
       const user = getUser();
-      authStatus.textContent = `Logged in as ${user.username}`;
+      authStatus.textContent = `Logged in as ${user?.username || 'User'}`;
     } else {
       linkDashboard.classList.add('hidden');
       linkLogout.classList.add('hidden');
@@ -141,7 +125,13 @@
     }
   }
 
-  // Render pages
+  // Show error message helper
+  function showError(id, message) {
+    const el = document.getElementById(id);
+    if(el) el.textContent = message;
+  }
+
+  // LOGIN page
   function renderLogin() {
     content.innerHTML = `
       <div class="form-container">
@@ -161,30 +151,44 @@
       renderRegister();
     };
 
-    document.getElementById('login-form').onsubmit = e => {
+    document.getElementById('login-form').onsubmit = async e => {
       e.preventDefault();
+      showError('login-error', '');
+
       const username = document.getElementById('login-username').value.trim();
       const password = document.getElementById('login-password').value;
 
-      // Simple validation
       if (!username || !password) {
         showError('login-error', 'Please fill all fields');
         return;
       }
 
-      const users = JSON.parse(localStorage.getItem('weke_users') || '{}');
-      if (!users[username] || users[username] !== password) {
-        showError('login-error', 'Invalid username or password');
-        return;
-      }
+      try {
+        const res = await fetch(`${API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
 
-      // Login success
-      localStorage.setItem('wekelogin_user', JSON.stringify({ username }));
-      updateNav();
-      renderWelcome();
+        if (!res.ok) {
+          const errorData = await res.json();
+          showError('login-error', errorData.message || 'Login failed');
+          return;
+        }
+
+        const data = await res.json();
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('wekelogin_user', JSON.stringify({ username }));
+
+        updateNav();
+        renderWelcome();
+      } catch (err) {
+        showError('login-error', 'Network error');
+      }
     };
   }
 
+  // REGISTER page
   function renderRegister() {
     content.innerHTML = `
       <div class="form-container">
@@ -204,8 +208,10 @@
       renderLogin();
     };
 
-    document.getElementById('register-form').onsubmit = e => {
+    document.getElementById('register-form').onsubmit = async e => {
       e.preventDefault();
+      showError('register-error', '');
+
       const username = document.getElementById('register-username').value.trim();
       const password = document.getElementById('register-password').value;
 
@@ -214,93 +220,84 @@
         return;
       }
 
-      let users = JSON.parse(localStorage.getItem('weke_users') || '{}');
-      if (users[username]) {
-        showError('register-error', 'Username already taken');
-        return;
-      }
+      try {
+        const res = await fetch(`${API_BASE}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
 
-      // Save new user
-      users[username] = password;
-      localStorage.setItem('weke_users', JSON.stringify(users));
-      alert('Registration successful! You can now login.');
-      renderLogin();
+        if (!res.ok) {
+          const errorData = await res.json();
+          showError('register-error', errorData.message || 'Registration failed');
+          return;
+        }
+
+        alert('Registration successful! You can now login.');
+        renderLogin();
+      } catch (err) {
+        showError('register-error', 'Network error');
+      }
     };
   }
 
+  // ABOUT page
   function renderAbout() {
     content.innerHTML = `
       <div>
         <h2>About Weke</h2>
         <p>Weke is a platform for Windows and Office tools.</p>
-        <p>This demo shows a simple login system with admin dashboard access control.</p>
+        <p>This demo shows a login system connected to a backend with JWT auth.</p>
       </div>
     `;
   }
 
-  function renderDashboard() {
+  // ADMIN DASHBOARD page
+  async function renderDashboard() {
     if (!isLoggedIn()) {
       alert('You must be logged in to access the Admin Dashboard.');
       renderLogin();
       return;
     }
-    const user = getUser();
-    content.innerHTML = `
-      <div>
-        <h2>Admin Dashboard</h2>
-        <p>Welcome, <strong>${user.username}</strong>!</p>
-        <p>This is a protected admin area.</p>
-      </div>
-    `;
+
+    content.innerHTML = '<p>Loading admin data...</p>';
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/admin`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (res.status === 401) {
+        alert('Session expired or unauthorized. Please login again.');
+        localStorage.removeItem('token');
+        localStorage.removeItem('wekelogin_user');
+        renderLogin();
+        updateNav();
+        return;
+      }
+
+      if (!res.ok) {
+        content.innerHTML = `<p>Error loading admin data</p>`;
+        return;
+      }
+
+      const data = await res.json();
+
+      const user = getUser();
+      content.innerHTML = `
+        <div>
+          <h2>Admin Dashboard</h2>
+          <p>Welcome, <strong>${user.username}</strong>!</p>
+          <pre>${JSON.stringify(data, null, 2)}</pre>
+          <p>This is a protected admin area.</p>
+        </div>
+      `;
+    } catch (err) {
+      content.innerHTML = `<p>Network error loading admin data.</p>`;
+    }
   }
 
-  function renderWelcome() {
-    content.innerHTML = `
-      <div>
-        <h2>Welcome to Weke!</h2>
-        <p>Please use the navigation links above to Login, Register, or visit About.</p>
-      </div>
-    `;
-  }
+  // WELCOME / HOME
 
-  function showError(id, message) {
-    document.getElementById(id).textContent = message;
-  }
-
-  // Event Listeners for nav links
-  linkLogin.onclick = e => {
-    e.preventDefault();
-    renderLogin();
-  };
-
-  linkRegister.onclick = e => {
-    e.preventDefault();
-    renderRegister();
-  };
-
-  linkAbout.onclick = e => {
-    e.preventDefault();
-    renderAbout();
-  };
-
-  linkDashboard.onclick = e => {
-    e.preventDefault();
-    renderDashboard();
-  };
-
-  linkLogout.onclick = e => {
-    e.preventDefault();
-    localStorage.removeItem('wekelogin_user');
-    updateNav();
-    renderWelcome();
-  };
-
-  // Initialize
-  updateNav();
-  renderWelcome();
-
-</script>
-
-</body>
-</html>
 
