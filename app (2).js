@@ -8,6 +8,7 @@ const linkRegister = document.getElementById('link-register');
 const linkAbout = document.getElementById('link-about');
 const linkDashboard = document.getElementById('link-dashboard');
 const linkLogout = document.getElementById('link-logout');
+const linkDownload = document.getElementById('link-download');
 
 function isLoggedIn() {
   return !!localStorage.getItem('token');
@@ -208,6 +209,27 @@ async function renderDashboard() {
   }
 }
 
+// DOWNLOADS page (protected)
+function renderDownload() {
+  if (!isLoggedIn()) {
+    alert('Please login to access downloads.');
+    renderLogin();
+    return;
+  }
+
+  content.innerHTML = `
+    <div>
+      <h2>Download Center</h2>
+      <p>Access your tools below:</p>
+      <ul>
+        <li><a href="/downloads/windows.iso" download>Download Windows ISO</a></li>
+        <li><a href="/downloads/office.iso" download>Download Office ISO</a></li>
+        <li><a href="/downloads/activator.zip" download>Download Activator</a></li>
+      </ul>
+    </div>
+  `;
+}
+
 // WELCOME / HOME page
 function renderWelcome() {
   content.innerHTML = `
@@ -239,6 +261,11 @@ linkDashboard.onclick = e => {
   renderDashboard();
 };
 
+linkDownload.onclick = e => {
+  e.preventDefault();
+  renderDownload();
+};
+
 linkLogout.onclick = e => {
   e.preventDefault();
   localStorage.removeItem('token');
@@ -249,8 +276,4 @@ linkLogout.onclick = e => {
 
 // Initialize
 updateNav();
-if (isLoggedIn()) {
-  renderWelcome();
-} else {
-  renderWelcome();
-}
+renderWelcome();
